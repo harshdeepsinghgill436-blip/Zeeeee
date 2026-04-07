@@ -4,9 +4,10 @@ import { Toaster, toast } from 'react-hot-toast'
 import CampaignCreate from './components/CampaignCreate'
 import Dashboard from './components/Dashboard'
 import Settings from './components/Settings'
-import { Zap, LayoutDashboard, Plus, Settings as SettingsIcon } from 'lucide-react'
+import Analytics from './components/Analytics'
+import { Zap, LayoutDashboard, Plus, Settings as SettingsIcon, BarChart2 } from 'lucide-react'
 
-export type Tab = 'dashboard' | 'new' | 'settings'
+export type Tab = 'dashboard' | 'new' | 'analytics' | 'settings'
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('dashboard')
@@ -36,14 +37,13 @@ export default function App() {
         style: { background: '#1a1a1a', color: '#fff', border: '1px solid #2a2a2a', borderRadius: '12px', fontSize: '14px' }
       }} />
 
-      {/* Top nav */}
       <nav className="border-b border-[#141414] px-4 py-3 flex items-center justify-between sticky top-0 bg-[#0a0a0a]/95 backdrop-blur z-50">
         <div className="flex items-center gap-1.5">
           <Zap size={18} className="text-[#39ff14]" />
           <span className="font-bold text-base tracking-tight">LeadSynth <span className="text-[#39ff14]">Mailer</span></span>
         </div>
         <div className="hidden sm:flex gap-1.5">
-          {(['dashboard', 'new', 'settings'] as Tab[]).map(t => (
+          {(['dashboard', 'new', 'analytics', 'settings'] as Tab[]).map(t => (
             <button key={t} onClick={() => setTab(t)}
               className={`px-3 py-2 rounded-xl text-sm font-medium transition-all capitalize ${tab === t ? 'bg-[#39ff14] text-black' : 'bg-[#151515] text-gray-400 hover:text-white'}`}>
               {t === 'new' ? '+ New' : t}
@@ -57,15 +57,17 @@ export default function App() {
           ? <CampaignCreate onCreated={() => { toast.success('Campaign launched!'); setTab('dashboard') }} onGoSettings={() => setTab('settings')} />
           : tab === 'settings'
           ? <Settings />
+          : tab === 'analytics'
+          ? <Analytics />
           : <Dashboard />
         }
       </main>
 
-      {/* Mobile bottom nav */}
       <div className="sm:hidden fixed bottom-0 left-0 right-0 border-t border-[#141414] bg-[#0a0a0a]/95 backdrop-blur flex safe-bottom">
         {[
-          { id: 'dashboard', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
+          { id: 'dashboard', icon: <LayoutDashboard size={20} />, label: 'Leads' },
           { id: 'new', icon: <Plus size={20} />, label: 'New' },
+          { id: 'analytics', icon: <BarChart2 size={20} />, label: 'Analytics' },
           { id: 'settings', icon: <SettingsIcon size={20} />, label: 'Settings' },
         ].map(item => (
           <button key={item.id} onClick={() => setTab(item.id as Tab)}
