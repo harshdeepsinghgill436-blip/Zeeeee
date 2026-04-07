@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { toast } from 'react-hot-toast'
 import { Search, Trash2, RefreshCw, CheckCircle, Clock, ChevronDown, ChevronUp, Send, Zap } from 'lucide-react'
 import { SEQUENCES } from '../lib/sequences'
+import { processDueFollowups } from '../lib/mailer'
 
 interface Lead {
   id: string
@@ -42,7 +43,23 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState({ total: 0, active: 0, sent: 0, done: 0 })
 
-  useEffect(() => { fetchAll() }, [])
+  useEffect(() => {
+    fetchAll()
+    // Fire due follow-ups immediately on load, then every 5 minutes
+    runFollowups()
+    const interval = setInterval(runFollowups, 5 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [])
+
+  async function runFollowups() {
+    try {
+      const fired = await processDueFollowups()
+      if (fired > 0) {
+        toast.success(`${fired} follow-up${fired > 1 ? 's' : ''} sent!`)
+        fetchAll()
+      }
+    } catch (e) { console.error('Follow-up run failed:', e) }
+  }
 
   async function fetchAll() {
     setLoading(true)
