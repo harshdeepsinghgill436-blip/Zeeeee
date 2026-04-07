@@ -2,43 +2,19 @@ import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { SEQUENCES } from '../lib/sequences'
 import { toast } from 'react-hot-toast'
-import { Rocket, Loader2, Users, Mail, Calendar } from 'lucide-react'
+import { Rocket, Loader2, Users, Mail, Calendar, AlertTriangle } from 'lucide-react'
+import { loadBrevoAccounts } from './Settings'
 
-const BREVO_ACCOUNTS = [
-  { key: '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', email: 'official.zmarketing@gmail.com' },
-  { key: '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', email: 'z.advertisements.agency@gmail.com' },
-  { key: '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', email: 'infozeta.digitalmarketing@gmail.com' },
-]
+const SUPABASE_URL = 'https://gnmqquorrhtnpmuzoitc.supabase.co'
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdubXFxdW9ycmh0bnBtdXpvaXRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1NDA5MDIsImV4cCI6MjA5MTExNjkwMn0.5yONIzbbcHlT_RFm9DVk9FQ8bhJuofa28Q-A_P8nWxE'
 
-// Send directly via Brevo API from browser
-async function sendViaBrevo(brevoKey: string, fromEmail: string, toEmail: string, subject: string, body: string) {
-  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
-    method: 'POST',
-    headers: {
-      'api-key': brevoKey,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      sender: { name: 'Z', email: fromEmail },
-      to: [{ email: toEmail }],
-      subject,
-      textContent: body,
-    }),
-  })
-  if (!res.ok) {
-    const err = await res.text()
-    throw new Error(`Brevo: ${err}`)
-  }
-  return true
-}
+interface Props { onCreated: () => void; onGoSettings: () => void }
 
-interface Props { onCreated: () => void }
-
-export default function CampaignCreate({ onCreated }: Props) {
+export default function CampaignCreate({ onCreated, onGoSettings }: Props) {
   const [name, setName] = useState('')
   const [emailsRaw, setEmailsRaw] = useState('')
   const [loading, setLoading] = useState(false)
-  const [progress, setProgress] = useState({ current: 0, total: 0 })
+  const [phase, setPhase] = useState('')
 
   function parseEmails(raw: string): string[] {
     return raw
@@ -48,37 +24,37 @@ export default function CampaignCreate({ onCreated }: Props) {
   }
 
   async function handleLaunch() {
+    const brevoAccounts = loadBrevoAccounts().filter(a => a.key && a.email)
+    if (brevoAccounts.length === 0) {
+      toast.error('Add Brevo keys in Settings first')
+      onGoSettings()
+      return
+    }
     if (!name.trim()) { toast.error('Enter a campaign name'); return }
     const emails = parseEmails(emailsRaw)
     if (emails.length === 0) { toast.error('No valid emails found'); return }
 
     setLoading(true)
-    setProgress({ current: 0, total: emails.length })
+    setPhase('Creating campaign...')
 
     try {
-      // 1. Create campaign in DB
       const { data: campaign, error: campErr } = await supabase
         .from('campaigns')
         .insert({ name: name.trim(), total_leads: emails.length, status: 'active' })
-        .select()
-        .single()
+        .select().single()
       if (campErr) throw campErr
 
-      // 2. Get current lead count for rotation
       const { count: totalLeads } = await supabase
-        .from('leads')
-        .select('*', { count: 'exact', head: true })
+        .from('leads').select('*', { count: 'exact', head: true })
 
       const baseCount = totalLeads || 0
       const now = new Date()
-      const nextDay = new Date(now.getTime() + 24 * 60 * 60 * 1000)
 
-      // 3. Build lead records
       const leadsToInsert = emails.map((email, i) => {
         const globalIndex = baseCount + i
         const sequenceId = (globalIndex % 10) + 1
-        const brevoIndex = globalIndex % 3
-        const brevo = BREVO_ACCOUNTS[brevoIndex]
+        const brevoIndex = globalIndex % brevoAccounts.length
+        const brevo = brevoAccounts[brevoIndex]
         return {
           campaign_id: campaign.id,
           email,
@@ -87,76 +63,61 @@ export default function CampaignCreate({ onCreated }: Props) {
           brevo_sender: brevo.email,
           status: 'pending',
           current_step: 0,
-          next_send_at: nextDay.toISOString(), // follow-ups start tomorrow
+          next_send_at: now.toISOString(),
         }
       })
 
-      const { data: insertedLeads, error: leadsErr } = await supabase
-        .from('leads')
-        .insert(leadsToInsert)
-        .select()
+      const { error: leadsErr } = await supabase.from('leads').insert(leadsToInsert)
       if (leadsErr) throw leadsErr
 
-      // 4. Fire main email immediately for each lead
-      let sent = 0
-      let failed = 0
+      setPhase('Triggering send...')
 
-      for (let i = 0; i < (insertedLeads || []).length; i++) {
-        const lead = insertedLeads![i]
-        const seq = SEQUENCES.find(s => s.id === lead.sequence_id)!
-        const brevo = BREVO_ACCOUNTS[i % 3]
+      // Call edge function to fire immediately
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/send-emails`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+          // Pass keys in header so edge function can use them
+          'x-brevo-accounts': JSON.stringify(brevoAccounts),
+        },
+      })
 
-        try {
-          await sendViaBrevo(lead.brevo_key, lead.brevo_sender, lead.email, seq.subject, seq.body)
-
-          // Mark as active (step 1 = waiting for first follow-up)
-          await supabase.from('leads').update({
-            status: 'active',
-            current_step: 1,
-            next_send_at: nextDay.toISOString(),
-          }).eq('id', lead.id)
-
-          // Log it
-          await supabase.from('email_logs').insert({
-            lead_id: lead.id,
-            step: 0,
-            subject: seq.subject,
-            sent_at: now.toISOString(),
-            status: 'sent',
-            brevo_sender: lead.brevo_sender,
-          })
-
-          sent++
-        } catch (e) {
-          failed++
-          console.error(`Failed ${lead.email}:`, e)
-        }
-
-        setProgress({ current: i + 1, total: emails.length })
-      }
-
-      if (sent > 0) {
-        toast.success(`🚀 ${sent} emails sent!${failed > 0 ? ` (${failed} failed)` : ''}`)
+      if (res.ok) {
+        const data = await res.json()
+        toast.success(`🚀 ${data.fired || emails.length} emails fired!`)
       } else {
-        toast.error('All sends failed — check Brevo keys')
+        toast.success(`Campaign saved! Emails will send shortly.`)
       }
+
       onCreated()
     } catch (e: any) {
       toast.error(e.message || 'Something went wrong')
     } finally {
       setLoading(false)
-      setProgress({ current: 0, total: 0 })
+      setPhase('')
     }
   }
 
   const parsed = parseEmails(emailsRaw)
+  const brevoOk = loadBrevoAccounts().filter(a => a.key && a.email).length > 0
 
   return (
     <div className="max-w-xl mx-auto px-1">
       <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">New Campaign</h1>
-        <p className="text-gray-500 text-sm mt-1">Emails fire instantly. 5 follow-ups over 5 days, fully automatic.</p>
+        <p className="text-gray-500 text-sm mt-1">Emails fire instantly. 5 follow-ups over 5 days.</p>
       </div>
+
+      {!brevoOk && (
+        <button
+          onClick={onGoSettings}
+          className="w-full mb-4 bg-yellow-900/20 border border-yellow-800/40 rounded-2xl px-4 py-3 flex items-center gap-2 text-yellow-400 text-sm hover:bg-yellow-900/30 transition-colors"
+        >
+          <AlertTriangle size={16} />
+          No Brevo keys set — tap to add them in Settings
+        </button>
+      )}
 
       <div className="space-y-4">
         <div className="bg-[#111] border border-[#222] rounded-2xl p-4">
@@ -199,32 +160,15 @@ export default function CampaignCreate({ onCreated }: Props) {
           </div>
         )}
 
-        {/* Progress bar while sending */}
-        {loading && progress.total > 0 && (
-          <div className="bg-[#111] border border-[#222] rounded-2xl p-4">
-            <div className="flex justify-between text-xs text-gray-500 mb-2">
-              <span>Sending emails...</span>
-              <span>{progress.current}/{progress.total}</span>
-            </div>
-            <div className="w-full bg-[#1a1a1a] rounded-full h-2">
-              <div
-                className="bg-[#39ff14] h-2 rounded-full transition-all duration-300"
-                style={{ width: `${(progress.current / progress.total) * 100}%` }}
-              />
-            </div>
-          </div>
-        )}
-
         <button
           onClick={handleLaunch}
           disabled={loading || parsed.length === 0 || !name.trim()}
           className="w-full py-4 rounded-2xl font-bold text-black bg-[#39ff14] hover:bg-[#2de010] active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 text-base"
         >
-          {loading ? (
-            <><Loader2 size={18} className="animate-spin" /> Sending {progress.current}/{progress.total}...</>
-          ) : (
-            <><Rocket size={18} /> Launch &amp; Send Now</>
-          )}
+          {loading
+            ? <><Loader2 size={18} className="animate-spin" /> {phase}</>
+            : <><Rocket size={18} /> Launch &amp; Send Now</>
+          }
         </button>
 
         <p className="text-center text-xs text-gray-700 pb-2">

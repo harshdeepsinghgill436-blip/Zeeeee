@@ -3,9 +3,10 @@ import { supabase } from './lib/supabase'
 import { Toaster, toast } from 'react-hot-toast'
 import CampaignCreate from './components/CampaignCreate'
 import Dashboard from './components/Dashboard'
-import { Zap, LayoutDashboard, Plus } from 'lucide-react'
+import Settings from './components/Settings'
+import { Zap, LayoutDashboard, Plus, Settings as SettingsIcon } from 'lucide-react'
 
-export type Tab = 'dashboard' | 'new'
+export type Tab = 'dashboard' | 'new' | 'settings'
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('dashboard')
@@ -41,52 +42,39 @@ export default function App() {
           <Zap size={18} className="text-[#39ff14]" />
           <span className="font-bold text-base tracking-tight">LeadSynth <span className="text-[#39ff14]">Mailer</span></span>
         </div>
-        <div className="flex gap-1.5">
-          <button
-            onClick={() => setTab('dashboard')}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all ${tab === 'dashboard' ? 'bg-[#39ff14] text-black' : 'bg-[#151515] text-gray-400 hover:text-white'}`}
-          >
-            <LayoutDashboard size={14} />
-            <span className="hidden sm:inline">Dashboard</span>
-          </button>
-          <button
-            onClick={() => setTab('new')}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all ${tab === 'new' ? 'bg-[#39ff14] text-black' : 'bg-[#151515] text-gray-400 hover:text-white'}`}
-          >
-            <Plus size={14} />
-            <span className="hidden sm:inline">New Campaign</span>
-          </button>
+        <div className="hidden sm:flex gap-1.5">
+          {(['dashboard', 'new', 'settings'] as Tab[]).map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`px-3 py-2 rounded-xl text-sm font-medium transition-all capitalize ${tab === t ? 'bg-[#39ff14] text-black' : 'bg-[#151515] text-gray-400 hover:text-white'}`}>
+              {t === 'new' ? '+ New' : t}
+            </button>
+          ))}
         </div>
       </nav>
 
-      {/* Main */}
-      <main className="flex-1 px-4 py-6 max-w-2xl mx-auto w-full">
+      <main className="flex-1 px-4 py-6 max-w-2xl mx-auto w-full pb-24 sm:pb-6">
         {tab === 'new'
-          ? <CampaignCreate onCreated={() => { toast.success('Campaign launched!'); setTab('dashboard') }} />
+          ? <CampaignCreate onCreated={() => { toast.success('Campaign launched!'); setTab('dashboard') }} onGoSettings={() => setTab('settings')} />
+          : tab === 'settings'
+          ? <Settings />
           : <Dashboard />
         }
       </main>
 
       {/* Mobile bottom nav */}
-      <div className="sm:hidden fixed bottom-0 left-0 right-0 border-t border-[#141414] bg-[#0a0a0a]/95 backdrop-blur flex">
-        <button
-          onClick={() => setTab('dashboard')}
-          className={`flex-1 flex flex-col items-center gap-1 py-3 text-xs font-medium transition-colors ${tab === 'dashboard' ? 'text-[#39ff14]' : 'text-gray-600'}`}
-        >
-          <LayoutDashboard size={20} />
-          Dashboard
-        </button>
-        <button
-          onClick={() => setTab('new')}
-          className={`flex-1 flex flex-col items-center gap-1 py-3 text-xs font-medium transition-colors ${tab === 'new' ? 'text-[#39ff14]' : 'text-gray-600'}`}
-        >
-          <Plus size={20} />
-          New Campaign
-        </button>
+      <div className="sm:hidden fixed bottom-0 left-0 right-0 border-t border-[#141414] bg-[#0a0a0a]/95 backdrop-blur flex safe-bottom">
+        {[
+          { id: 'dashboard', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
+          { id: 'new', icon: <Plus size={20} />, label: 'New' },
+          { id: 'settings', icon: <SettingsIcon size={20} />, label: 'Settings' },
+        ].map(item => (
+          <button key={item.id} onClick={() => setTab(item.id as Tab)}
+            className={`flex-1 flex flex-col items-center gap-1 py-3 text-xs font-medium transition-colors ${tab === item.id ? 'text-[#39ff14]' : 'text-gray-600'}`}>
+            {item.icon}
+            {item.label}
+          </button>
+        ))}
       </div>
-
-      {/* Bottom padding for mobile nav */}
-      <div className="sm:hidden h-16" />
     </div>
   )
 }
